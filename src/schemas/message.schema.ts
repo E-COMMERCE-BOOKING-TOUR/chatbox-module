@@ -14,6 +14,9 @@ export class Message {
     @Prop()
     senderRole: string; // 'USER', 'ADMIN', 'SUPPLIER'
 
+    @Prop()
+    senderName: string; // Display name of sender
+
     @Prop({ required: true })
     content: string;
 

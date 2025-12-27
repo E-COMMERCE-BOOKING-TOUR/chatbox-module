@@ -24,6 +24,16 @@ export class Conversation {
 
     @Prop()
     lastMessageAt: Date;
+
+    @Prop({ default: 0 })
+    unreadCount: number;
+
+    @Prop({ default: 'general' })
+    category: string;
+
+    @Prop({ default: false })
+    isHidden: boolean;
 }
 
 export const ConversationSchema = SchemaFactory.createForClass(Conversation);
+ConversationSchema.index({ updatedAt: -1 });

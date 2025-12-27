@@ -52,6 +52,19 @@ export class ChatService {
         }).sort({ updatedAt: -1 }).exec();
     }
 
+    async getAllConversations(page: number = 1, limit: number = 20) {
+        const skip = (page - 1) * limit;
+        const [data, total] = await Promise.all([
+            this.conversationModel.find()
+                .sort({ updatedAt: -1 })
+                .skip(skip)
+                .limit(limit)
+                .exec(),
+            this.conversationModel.estimatedDocumentCount()
+        ]);
+        return { data, total, page, limit, total_pages: Math.ceil(total / limit) };
+    }
+
     async updateUserInfo(userId: string, name: string) {
         // Update name for this user in all conversations
         return this.conversationModel.updateMany(
@@ -60,15 +73,39 @@ export class ChatService {
         );
     }
 
-    async createMessage(data: { conversationId: string; senderId: string; senderRole: string; content: string }) {
+    async updateCategory(conversationId: string, category: string) {
+        return this.conversationModel.findByIdAndUpdate(conversationId, { category }, { new: true }).exec();
+    }
+
+    async toggleHide(conversationId: string, isHidden: boolean) {
+        return this.conversationModel.findByIdAndUpdate(conversationId, { isHidden }, { new: true }).exec();
+    }
+
+    async markAsRead(conversationId: string) {
+        return this.conversationModel.findByIdAndUpdate(conversationId, { unreadCount: 0 }, { new: true }).exec();
+    }
+
+    async createMessage(data: { conversationId: string; senderId: string; senderRole: string; senderName?: string; content: string }) {
         const message = new this.messageModel(data);
         const saved = await message.save();
 
-        // Update conversation last message
-        await this.conversationModel.findByIdAndUpdate(data.conversationId, {
-            lastMessage: data.content,
-            lastMessageAt: new Date(),
-        });
+        const isAdmin = data.senderRole === 'ADMIN' || data.senderRole === 'admin';
+
+        // Update conversation last message and unreadCount
+        const update: any = {
+            $set: {
+                lastMessage: data.content,
+                lastMessageAt: new Date(),
+            }
+        };
+
+        if (isAdmin) {
+            update.$set.unreadCount = 0;
+        } else {
+            update.$inc = { unreadCount: 1 };
+        }
+
+        await this.conversationModel.findByIdAndUpdate(data.conversationId, update);
 
         return saved;
     }
