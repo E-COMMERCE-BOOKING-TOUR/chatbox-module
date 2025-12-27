@@ -10,26 +10,23 @@ export class ChatController {
         private readonly chatGateway: ChatGateway,
     ) { }
 
-    @MessagePattern({ cmd: 'get_messages_by_room' })
-    async getMessagesByRoom(@Payload() roomId: string) {
-        return this.chatService.getMessagesForRoom(roomId);
+    @MessagePattern({ cmd: 'create_conversation' })
+    async createConversation(@Payload() participants: { userId: string; role: string; name?: string }[]) {
+        return this.chatService.createConversation(participants);
     }
 
-    @MessagePattern({ cmd: 'send_system_message' })
-    async sendSystemMessage(@Payload() data: { roomId: string; content: string }) {
-        const message = {
-            senderId: 'SYSTEM',
-            roomId: data.roomId,
-            content: data.content,
-            receiverId: undefined
-        };
-        const saved = await this.chatService.createMessage(message);
+    @MessagePattern({ cmd: 'get_user_conversations' })
+    async getUserConversations(@Payload() userId: string) {
+        return this.chatService.getUserConversations(userId);
+    }
 
-        // Emit via WebSocket
-        if (this.chatGateway.server) {
-            this.chatGateway.server.to(data.roomId).emit('newMessage', saved);
-        }
+    @MessagePattern({ cmd: 'update_user_info' })
+    async updateUserInfo(@Payload() data: { userId: string, name: string }) {
+        return this.chatService.updateUserInfo(data.userId, data.name);
+    }
 
-        return saved;
+    @MessagePattern({ cmd: 'get_messages' })
+    async getMessages(@Payload() conversationId: string) {
+        return this.chatService.getMessages(conversationId);
     }
 }

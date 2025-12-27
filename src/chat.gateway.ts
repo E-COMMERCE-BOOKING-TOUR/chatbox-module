@@ -20,27 +20,27 @@ export class ChatGateway {
     constructor(private readonly chatService: ChatService) { }
 
     @SubscribeMessage('joinRoom')
-    handleJoinRoom(@MessageBody('roomId') roomId: string, @ConnectedSocket() client: Socket) {
-        client.join(roomId);
-        console.log(`Client ${client.id} joined room ${roomId}`);
-        return { event: 'joinedRoom', roomId };
+    handleJoinRoom(@MessageBody('conversationId') conversationId: string, @ConnectedSocket() client: Socket) {
+        client.join(conversationId);
+        console.log(`Client ${client.id} joined conversation ${conversationId}`);
+        return { event: 'joinedRoom', conversationId };
     }
 
     @SubscribeMessage('leaveRoom')
-    handleLeaveRoom(@MessageBody('roomId') roomId: string, @ConnectedSocket() client: Socket) {
-        client.leave(roomId);
-        console.log(`Client ${client.id} left room ${roomId}`);
-        return { event: 'leftRoom', roomId };
+    handleLeaveRoom(@MessageBody('conversationId') conversationId: string, @ConnectedSocket() client: Socket) {
+        client.leave(conversationId);
+        console.log(`Client ${client.id} left conversation ${conversationId}`);
+        return { event: 'leftRoom', conversationId };
     }
 
     @SubscribeMessage('sendMessage')
     async handleMessage(
-        @MessageBody() payload: { senderId: string; roomId: string; content: string },
+        @MessageBody() payload: { senderId: string; senderRole: string; conversationId: string; content: string },
         @ConnectedSocket() client: Socket,
     ) {
         const savedMessage = await this.chatService.createMessage(payload);
-        // Broadcast to the room
-        this.server.to(payload.roomId).emit('newMessage', savedMessage);
+        // Broadcast to the room (conversation)
+        this.server.to(payload.conversationId).emit('newMessage', savedMessage);
         return savedMessage;
     }
 }
