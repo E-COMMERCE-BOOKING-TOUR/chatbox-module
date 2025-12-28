@@ -33,6 +33,12 @@ export class Conversation {
 
     @Prop({ default: false })
     isHidden: boolean;
+
+    @Prop({ default: true })
+    isAiEnabled: boolean;
+
+    @Prop({ default: false })
+    isHumanTakeover: boolean;
 }
 
 export const ConversationSchema = SchemaFactory.createForClass(Conversation);

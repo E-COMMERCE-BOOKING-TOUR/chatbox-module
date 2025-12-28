@@ -28,7 +28,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @WebSocketServer()
     server: Server;
 
-    constructor(private readonly chatService: ChatService) { }
+    constructor(private readonly chatService: ChatService) {
+        this.chatService.messageSubject.subscribe((message) => {
+            if (this.server) {
+                this.server.to(message.conversationId).emit('newMessage', message);
+            }
+        });
+    }
 
     // Authenticate on connection
     async handleConnection(client: Socket) {
@@ -149,5 +155,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         // Broadcast to the room
         this.server.to(payload.conversationId).emit('newMessage', savedMessage);
         return savedMessage;
+    }
+
+    emitMessage(conversationId: string, message: any) {
+        if (this.server) {
+            this.server.to(conversationId).emit('newMessage', message);
+        }
     }
 }

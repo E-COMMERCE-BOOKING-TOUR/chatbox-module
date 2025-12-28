@@ -7,6 +7,8 @@ import { ChatController } from './chat.controller';
 import { Message, MessageSchema } from './schemas/message.schema';
 import { Conversation, ConversationSchema } from './schemas/conversation.schema';
 
+import { ChatAiService } from './chat-ai.service';
+
 @Module({
     imports: [
         ConfigModule.forRoot({
@@ -25,6 +27,6 @@ import { Conversation, ConversationSchema } from './schemas/conversation.schema'
         ]),
     ],
     controllers: [ChatController],
-    providers: [ChatService, ChatGateway],
+    providers: [ChatService, ChatAiService, ChatGateway],
 })
 export class AppModule { }

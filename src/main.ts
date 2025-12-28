@@ -12,7 +12,7 @@ async function bootstrap() {
         transport: Transport.TCP,
         options: {
             host: '0.0.0.0',
-            port: 8877,
+            port: Number(process.env.CHATBOX_TCP_PORT),
         },
     });
 
@@ -23,8 +23,8 @@ async function bootstrap() {
     await app.startAllMicroservices();
 
     // HTTP/WebSocket server listens on the main PORT
-    await app.listen(process.env.PORT || 3000);
-    console.log(`Chatbot service HTTP/WS is listening on port ${process.env.PORT || 3000}`);
-    console.log(`Chatbot service TCP is listening on port 8877`);
+    await app.listen(process.env.PORT as string);
+    console.log(`Chatbot service HTTP/WS is listening on port ${process.env.PORT}`);
+    console.log(`Chatbot service TCP is listening on port ${process.env.CHATBOX_TCP_PORT}`);
 }
 bootstrap();

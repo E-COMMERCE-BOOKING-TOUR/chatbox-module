@@ -59,4 +59,14 @@ export class ChatController {
     async markAsRead(@Payload() conversationId: string) {
         return this.chatService.markAsRead(conversationId);
     }
+
+    @MessagePattern({ cmd: 'toggle_ai' })
+    async toggleAi(@Payload() data: { conversationId: string; isAiEnabled: boolean }) {
+        return this.chatService.toggleAi(data.conversationId, data.isAiEnabled);
+    }
+
+    @MessagePattern({ cmd: 'toggle_human_takeover' })
+    async toggleHumanTakeover(@Payload() data: { conversationId: string; isHumanTakeover: boolean }) {
+        return this.chatService.toggleHumanTakeover(data.conversationId, data.isHumanTakeover);
+    }
 }
