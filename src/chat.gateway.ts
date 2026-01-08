@@ -96,19 +96,63 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return null;
     }
 
+    // Track users in each room for presence
+    private roomUsers = new Map<string, Set<string>>();
+
     @SubscribeMessage('joinRoom')
     handleJoinRoom(@MessageBody('conversationId') conversationId: string, @ConnectedSocket() client: Socket) {
         if (!client.data.user) {
             return { event: 'error', message: 'Not authenticated' };
         }
+
+        const user = client.data.user as WsUser;
         client.join(conversationId);
-        console.log(`${client.data.user.full_name} joined conversation ${conversationId}`);
+
+        // Track user in room
+        if (!this.roomUsers.has(conversationId)) {
+            this.roomUsers.set(conversationId, new Set());
+        }
+        this.roomUsers.get(conversationId)!.add(user.uuid);
+
+        // Notify others in room that user joined
+        client.to(conversationId).emit('userJoined', {
+            conversationId,
+            userId: user.uuid,
+            userName: user.full_name,
+        });
+
+        // Send current room users to the joining client
+        const usersInRoom = Array.from(this.roomUsers.get(conversationId) || []);
+        client.emit('roomUsers', {
+            conversationId,
+            users: usersInRoom,
+        });
+
+        console.log(`${user.full_name} joined conversation ${conversationId}`);
         return { event: 'joinedRoom', conversationId };
     }
 
     @SubscribeMessage('leaveRoom')
     handleLeaveRoom(@MessageBody('conversationId') conversationId: string, @ConnectedSocket() client: Socket) {
+        const user = client.data.user as WsUser | undefined;
         client.leave(conversationId);
+
+        // Remove user from room tracking
+        if (user && this.roomUsers.has(conversationId)) {
+            this.roomUsers.get(conversationId)!.delete(user.uuid);
+
+            // Notify others in room that user left
+            this.server.to(conversationId).emit('userLeft', {
+                conversationId,
+                userId: user.uuid,
+            });
+
+            // Clean up empty rooms
+            if (this.roomUsers.get(conversationId)!.size === 0) {
+                this.roomUsers.delete(conversationId);
+            }
+        }
+
         console.log(`Client ${client.id} left conversation ${conversationId}`);
         return { event: 'leftRoom', conversationId };
     }
