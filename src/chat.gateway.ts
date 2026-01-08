@@ -13,7 +13,7 @@ import * as jwt from 'jsonwebtoken';
 
 interface WsUser {
     uuid: string;
-    id: number;
+    id?: number;  // Optional - token may not contain id
     full_name: string;
     role: string;
     email?: string;
@@ -41,7 +41,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         try {
             const token = this.extractToken(client);
             if (!token) {
-                console.log(`Client ${client.id} disconnected: No token`);
+                console.log(`[Socket] Client ${client.id} connection failed: No token provided`);
                 client.emit('error', { message: 'Unauthorized: No token provided' });
                 client.disconnect();
                 return;
@@ -49,28 +49,60 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
             const secret = process.env.JWT_SECRET_PRIVATEKEY;
             if (!secret) {
-                console.error('JWT_SECRET_PRIVATEKEY not configured');
+                console.error('[Socket] JWT_SECRET_PRIVATEKEY is missing in env');
                 client.emit('error', { message: 'Server configuration error' });
                 client.disconnect();
                 return;
             }
 
-            const decoded = jwt.verify(token, secret) as any;
+            let decoded: any;
+            try {
+                decoded = jwt.verify(token, secret);
+            } catch (err) {
+                console.log(`[Socket] Client ${client.id} context failure: Invalid JWT token`);
+                client.emit('error', { message: 'Unauthorized: Invalid token' });
+                client.disconnect();
+                return;
+            }
+
+            // Robust role detection (could be string or object from different auth paths)
+            let roleStr = 'USER';
+            if (decoded.role) {
+                if (typeof decoded.role === 'string') {
+                    roleStr = decoded.role;
+                } else if (typeof decoded.role === 'object' && decoded.role.name) {
+                    roleStr = decoded.role.name;
+                }
+            }
 
             // Attach user info to socket
             client.data.user = {
                 uuid: decoded.uuid,
-                id: decoded.id,
-                full_name: decoded.full_name,
-                role: decoded.role?.name || decoded.role || 'USER',
+                id: decoded.id, // Keep as optional for now
+                full_name: decoded.full_name || 'User',
+                role: roleStr,
                 email: decoded.email,
             } as WsUser;
 
-            console.log(`Client ${client.id} connected as ${client.data.user.full_name} (${client.data.user.uuid})`);
+            if (!client.data.user.uuid) {
+                console.error(`[Socket] Client ${client.id} token missing uuid`);
+                client.emit('error', { message: 'Incomplete token data: uuid required' });
+                client.disconnect();
+                return;
+            }
+
+            // Auto-join admin_notifications room if user is admin
+            const isAdmin = roleStr.toUpperCase() === 'ADMIN';
+            if (isAdmin) {
+                client.join('admin_notifications');
+                console.log(`[Socket] Admin ${client.data.user.full_name} (${client.data.user.uuid}) joined admin_notifications`);
+            }
+
+            console.log(`[Socket] Client ${client.id} connected as ${client.data.user.full_name} (${client.data.user.uuid})`);
             client.emit('authenticated', { user: client.data.user });
         } catch (error) {
-            console.log(`Client ${client.id} disconnected: Invalid token`);
-            client.emit('error', { message: 'Unauthorized: Invalid token' });
+            console.error('[Socket] Unexpected connection error:', error);
+            client.emit('error', { message: 'Internal server error during connection' });
             client.disconnect();
         }
     }
@@ -99,6 +131,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // Track users in each room for presence
     private roomUsers = new Map<string, Set<string>>();
 
+    // Get tracking ID from user - use uuid only
+    private getTrackingId(user: WsUser): string {
+        return user.uuid || 'unknown';
+    }
+
     @SubscribeMessage('joinRoom')
     handleJoinRoom(@MessageBody('conversationId') conversationId: string, @ConnectedSocket() client: Socket) {
         if (!client.data.user) {
@@ -108,16 +145,19 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         const user = client.data.user as WsUser;
         client.join(conversationId);
 
+        // Use uuid for tracking (matches how userId is stored in newer conversations)
+        const trackingId = this.getTrackingId(user);
+
         // Track user in room
         if (!this.roomUsers.has(conversationId)) {
             this.roomUsers.set(conversationId, new Set());
         }
-        this.roomUsers.get(conversationId)!.add(user.uuid);
+        this.roomUsers.get(conversationId)!.add(trackingId);
 
         // Notify others in room that user joined
         client.to(conversationId).emit('userJoined', {
             conversationId,
-            userId: user.uuid,
+            userId: trackingId,
             userName: user.full_name,
         });
 
@@ -128,7 +168,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             users: usersInRoom,
         });
 
-        console.log(`${user.full_name} joined conversation ${conversationId}`);
+        console.log(`${user.full_name} (trackingId: ${trackingId}) joined conversation ${conversationId}`);
         return { event: 'joinedRoom', conversationId };
     }
 
@@ -139,12 +179,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
         // Remove user from room tracking
         if (user && this.roomUsers.has(conversationId)) {
-            this.roomUsers.get(conversationId)!.delete(user.uuid);
+            const trackingId = this.getTrackingId(user);
+            this.roomUsers.get(conversationId)!.delete(trackingId);
 
             // Notify others in room that user left
             this.server.to(conversationId).emit('userLeft', {
                 conversationId,
-                userId: user.uuid,
+                userId: trackingId,
             });
 
             // Clean up empty rooms
@@ -169,7 +210,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
 
         const user = client.data.user as WsUser;
-        const isAdmin = user.role === 'ADMIN' || user.role === 'admin';
+        const isAdmin = user.role?.toUpperCase() === 'ADMIN';
+
+        console.log(`[Socket] Message from ${user.full_name} (Role: ${user.role}, isAdmin: ${isAdmin}) in room ${payload.conversationId}`);
 
         // Rate limiting: 2 seconds cooldown for non-admin users
         if (!isAdmin) {
@@ -179,6 +222,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
             if (now - lastSent < COOLDOWN_MS) {
                 const remaining = Math.ceil((COOLDOWN_MS - (now - lastSent)) / 1000);
+                console.log(`[Socket] Rate limit hit for ${user.full_name} (${user.uuid})`);
                 client.emit('error', { message: `Click too fast! Please wait ${remaining}s.` });
                 return { event: 'error', message: 'Rate limit exceeded' };
             }
@@ -198,6 +242,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
         // Broadcast to the room
         this.server.to(payload.conversationId).emit('newMessage', savedMessage);
+
+        // Broadcast to admin notification channel if message is from non-admin
+        if (!isAdmin) {
+            console.log(`[Socket] Broadcasting adminNewMessage for conversation ${payload.conversationId}`);
+            this.server.to('admin_notifications').emit('adminNewMessage', savedMessage);
+        }
+
         return savedMessage;
     }
 
