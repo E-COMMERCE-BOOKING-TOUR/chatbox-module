@@ -17,25 +17,21 @@ export class ChatService {
         private readonly chatAiService: ChatAiService,
     ) { }
 
-    async createConversation(participants: { userId: string; role: string; name?: string }[]) {
-        // Check if same participants already exist (ignoring order)
-        // This is a basic check. In production, might need more robust query if > 2 participants.
-        // For 1:1, we want unique pair.
+    async createConversation(data: {
+        participants: { userId: string; role: string; name?: string }[];
+        context?: {
+            tourId?: number;
+            tourSlug?: string;
+            tourTitle?: string;
+            bookingId?: number;
+            supplierId?: number;
+            supplierName?: string;
+            source?: string;
+        };
+    }) {
+        const { participants, context } = data;
 
-        // Normalize to ensure consistent searching if needed, but for now we look for exact match of participants set is complex in mongo.
-        // Simplified: Just create new or find exact match.
-
-        // Finding existing:
-        // We want a conversation where exact participants exist.
-        // Logic: Find conversation where size is X and all elements match.
-
-        // For simplicity in this demo, let's trust the caller or just create if not exists
-        // A better approach for 1:1 is to search.
-
-        // Sort participants by userId to create a deterministic key if we wanted, 
-        // but here let's query.
-
-        // Simplest query for 2 people:
+        // Check if same participants already exist (for 2-person chats)
         if (participants.length === 2) {
             const [p1, p2] = participants;
             const existing = await this.conversationModel.findOne({
@@ -45,10 +41,23 @@ export class ChatService {
                     { participants: { $size: 2 } }
                 ]
             });
-            if (existing) return existing;
+            if (existing) {
+                // Update context if provided and different
+                if (context && JSON.stringify(existing.context) !== JSON.stringify(context)) {
+                    existing.context = context;
+                    return existing.save();
+                }
+                return existing;
+            }
         }
 
-        const conversation = new this.conversationModel({ participants });
+        const conversation = new this.conversationModel({
+            participants,
+            context,
+            status: 'pending',
+            priority: 'medium',
+            tags: [],
+        });
         return conversation.save();
     }
 
@@ -124,11 +133,21 @@ export class ChatService {
 
         // AI Trigger Logic: If from user, and AI enabled, and NOT human takeover, and NOT from AI itself
         if (!isAdmin && !isAi && conversation?.isAiEnabled && !conversation?.isHumanTakeover) {
-            // FIRE AND FORGET AI Response
-            this.handleAiResponse(conversation, data.content).catch(err => console.error('AI trigger error:', err));
+            // FIRE AND FORGET AI Response with extra safety check
+            this.callAiWithSafetyCheck(data.conversationId, data.content).catch(err => console.error('AI trigger error:', err));
         }
 
         return saved;
+    }
+
+    private async callAiWithSafetyCheck(conversationId: string, userContent: string) {
+        // Re-fetch conversation to ensure we have the absolute latest state
+        const conversation = await this.conversationModel.findById(conversationId);
+        if (!conversation || !conversation.isAiEnabled || conversation.isHumanTakeover) {
+            return;
+        }
+
+        return this.handleAiResponse(conversation, userContent);
     }
 
     private async handleAiResponse(conversation: any, userContent: string) {
@@ -150,14 +169,24 @@ export class ChatService {
                 conversationId: conversation._id.toString(),
                 senderId: 'AI_AGENT',
                 senderRole: 'AI',
-                senderName: 'Assistant',
-                content: aiResponse,
+                senderName: 'Trợ lý AI',
+                content: aiResponse.content,
             };
 
             // Recursively call createMessage so it saves and emits
             // Since senderRole is 'AI', it won't re-trigger handleAiResponse
             const savedAi = await this.createMessage(aiMessage);
             this.messageSubject.next(savedAi);
+
+            // Handle escalation - auto-enable human takeover
+            if (aiResponse.shouldEscalate) {
+                console.log(`🚨 Escalation triggered for conversation ${conversation._id}`);
+                await this.conversationModel.findByIdAndUpdate(conversation._id, {
+                    isHumanTakeover: true,
+                    status: 'assigned',
+                    priority: 'high',
+                });
+            }
         } catch (error) {
             console.error('Failed to generate AI response:', error);
         }

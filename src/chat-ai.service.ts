@@ -2,6 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 
+export interface AiResponse {
+    content: string;
+    shouldEscalate: boolean;
+}
+
 @Injectable()
 export class ChatAiService {
     private readonly aiServiceUrl: string;
@@ -12,16 +17,22 @@ export class ChatAiService {
         this.aiServiceUrl = `http://${host}:${port}/v1/chat/completions`;
     }
 
-    async getAiResponse(history: { role: string; content: string }[], content: string): Promise<string> {
+    async getAiResponse(history: { role: string; content: string }[], content: string): Promise<AiResponse> {
         try {
             const response = await axios.post(this.aiServiceUrl, {
                 messages: [...history, { role: 'user', content }],
             }, { timeout: 30000 });
 
-            return response.data.choices[0].message.content;
+            const aiContent = response.data.choices[0].message.content;
+            const shouldEscalate = response.data.should_escalate === true;
+
+            return { content: aiContent, shouldEscalate };
         } catch (error) {
             console.error('AI Service Error:', error.message);
-            return "Xin lỗi, tôi đang gặp chút sự cố kỹ thuật. Tôi sẽ quay lại hỗ trợ bạn ngay!";
+            return {
+                content: "Xin lỗi, tôi đang gặp chút sự cố kỹ thuật. Tôi sẽ quay lại hỗ trợ bạn ngay!",
+                shouldEscalate: true, // Escalate on error
+            };
         }
     }
 }

@@ -11,8 +11,19 @@ export class ChatController {
     ) { }
 
     @MessagePattern({ cmd: 'create_conversation' })
-    async createConversation(@Payload() participants: { userId: string; role: string; name?: string }[]) {
-        return this.chatService.createConversation(participants);
+    async createConversation(@Payload() data: {
+        participants: { userId: string; role: string; name?: string }[];
+        context?: {
+            tourId?: number;
+            tourSlug?: string;
+            tourTitle?: string;
+            bookingId?: number;
+            supplierId?: number;
+            supplierName?: string;
+            source?: string;
+        };
+    }) {
+        return this.chatService.createConversation(data);
     }
 
     @MessagePattern({ cmd: 'get_user_conversations' })
