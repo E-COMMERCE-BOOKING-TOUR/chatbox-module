@@ -28,8 +28,9 @@ export class ChatService {
             supplierName?: string;
             source?: string;
         };
+        isAiEnabled?: boolean;
     }) {
-        const { participants, context } = data;
+        const { participants, context, isAiEnabled = true } = data;
 
         // Check if same participants already exist (for 2-person chats)
         if (participants.length === 2) {
@@ -42,9 +43,25 @@ export class ChatService {
                 ]
             });
             if (existing) {
+                // Update participant names if they have changed (to sync latest name from token)
+                let needsSave = false;
+                for (const participant of existing.participants) {
+                    const newParticipant = participants.find(
+                        p => p.userId === participant.userId
+                    );
+                    if (newParticipant && newParticipant.name && participant.name !== newParticipant.name) {
+                        participant.name = newParticipant.name;
+                        needsSave = true;
+                    }
+                }
+
                 // Update context if provided and different
                 if (context && JSON.stringify(existing.context) !== JSON.stringify(context)) {
                     existing.context = context;
+                    needsSave = true;
+                }
+
+                if (needsSave) {
                     return existing.save();
                 }
                 return existing;
@@ -57,6 +74,7 @@ export class ChatService {
             status: 'pending',
             priority: 'medium',
             tags: [],
+            isAiEnabled, // Set AI enabled/disabled based on parameter
         });
         return conversation.save();
     }
@@ -80,11 +98,29 @@ export class ChatService {
         return { data, total, page, limit, total_pages: Math.ceil(total / limit) };
     }
 
+    async getSupplierConversations(supplierUserId: string, page: number = 1, limit: number = 20) {
+        const skip = (page - 1) * limit;
+        const filter = {
+            participants: { $elemMatch: { userId: supplierUserId, role: 'SUPPLIER' } }
+        };
+        const [data, total] = await Promise.all([
+            this.conversationModel.find(filter)
+                .sort({ updatedAt: -1 })
+                .skip(skip)
+                .limit(limit)
+                .exec(),
+            this.conversationModel.countDocuments(filter)
+        ]);
+        return { data, total, page, limit, total_pages: Math.ceil(total / limit) };
+    }
+
     async updateUserInfo(userId: string, name: string) {
-        // Update name for this user in all conversations
+        // Update name for this user in ALL matching participants across all conversations
+        // Using arrayFilters to update all array elements that match, not just the first one
         return this.conversationModel.updateMany(
             { "participants.userId": userId },
-            { $set: { "participants.$.name": name } }
+            { $set: { "participants.$[elem].name": name } },
+            { arrayFilters: [{ "elem.userId": userId }] }
         );
     }
 

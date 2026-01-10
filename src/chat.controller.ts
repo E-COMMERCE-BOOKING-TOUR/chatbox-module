@@ -41,6 +41,11 @@ export class ChatController {
         return this.chatService.getAllConversations(query.page, query.limit);
     }
 
+    @MessagePattern({ cmd: 'get_supplier_conversations' })
+    async getSupplierConversations(@Payload() query: { supplierUserId: string, page: number, limit: number }) {
+        return this.chatService.getSupplierConversations(query.supplierUserId, query.page, query.limit);
+    }
+
     @MessagePattern({ cmd: 'send_message' })
     async sendMessage(@Payload() payload: { conversationId: string; senderId: string; senderRole: string; content: string }) {
         const saved = await this.chatService.createMessage(payload);

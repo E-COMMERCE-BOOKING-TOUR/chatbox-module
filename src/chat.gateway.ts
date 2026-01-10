@@ -36,6 +36,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         });
     }
 
+    /**
+     * Normalize role name to match chat schema: 'USER' | 'ADMIN' | 'SUPPLIER'
+     * Maps customer, content_manager, moderator, etc. to 'USER'
+     */
+    private normalizeChatRole(roleName: string): 'USER' | 'ADMIN' | 'SUPPLIER' {
+        const upperRole = roleName.toUpperCase();
+        if (upperRole === 'ADMIN') return 'ADMIN';
+        if (upperRole === 'SUPPLIER') return 'SUPPLIER';
+        return 'USER'; // Default: customer, content_manager, moderator, etc. → USER
+    }
+
     // Authenticate on connection
     async handleConnection(client: Socket) {
         try {
@@ -80,7 +91,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
                 uuid: decoded.uuid,
                 id: decoded.id, // Keep as optional for now
                 full_name: decoded.full_name || 'User',
-                role: roleStr,
+                role: this.normalizeChatRole(roleStr), // Normalize role to USER/ADMIN/SUPPLIER
                 email: decoded.email,
             } as WsUser;
 
